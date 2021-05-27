@@ -4,6 +4,7 @@ Module for intersting with sqlite3
 
 # pylint: disable=arguments-differ
 
+import re
 import copy
 import json
 
@@ -262,23 +263,51 @@ class Source(relations.Source):
 
         return model
 
-    def field_retrieve(self, field, query, values):
+    def field_retrieve(self, field, query, values): # pylint: disable=too-many-branches
         """
         Adds where caluse to query
         """
 
         for operator, value in (field.criteria or {}).items():
+
+            if operator not in relations.Field.OPERATORS:
+
+                store = []
+                path = operator.split("__")
+                operator = path.pop()
+
+                for place in path:
+
+                    if re.match(r'^\d+$', place):
+                        store.append(f"[{int(place)}]")
+                    elif place[0] == '_':
+                        store.append(f'."{place[1:]}"')
+                    else:
+                        store.append(f".{place}")
+
+                values.append(f"${''.join(store)}")
+                store = f"json_extract(`{field.store}`,?)"
+
+            else:
+
+                store = f"`{field.store}`"
+
             if operator == "in":
-                query.add(wheres=f"`{field.store}` IN ({','.join(['?' for each in value])})")
+                query.add(wheres=f"{store} IN ({','.join(['?' for each in value])})")
                 values.extend(value)
             elif operator == "ne":
-                query.add(wheres=f"`{field.store}` NOT IN ({','.join(['?' for each in value])})")
+                query.add(wheres=f"{store} NOT IN ({','.join(['?' for each in value])})")
                 values.extend(value)
             elif operator == "like":
-                query.add(wheres=f'`{field.store}` LIKE ?')
+                query.add(wheres=f'{store} LIKE ?')
                 values.append(f"%{value}%")
+            elif operator == "notlike":
+                query.add(wheres=f'{store} NOT LIKE ?')
+                values.append(f"%{value}%")
+            elif operator == "null":
+                query.add(wheres=f'{store} {"IS" if value else "IS NOT"} NULL')
             else:
-                query.add(wheres=f"`{field.store}`{self.RETRIEVE[operator]}?")
+                query.add(wheres=f"{store}{self.RETRIEVE[operator]}?")
                 values.append(value)
 
     @staticmethod
