@@ -4,7 +4,6 @@ Module for intersting with sqlite3
 
 # pylint: disable=arguments-differ
 
-import re
 import copy
 import json
 
@@ -76,7 +75,7 @@ class Source(relations.Source):
         for field in model._fields._order:
             if field.readonly:
                 continue
-            if values.get(field.store) is not None and field.kind in [list, dict]:
+            if values.get(field.store) is not None and field.kind not in [bool, int, float, str]:
                 encoded.append(json.dumps(values[field.store]))
             else:
                 encoded.append(values[field.store])
@@ -89,7 +88,7 @@ class Source(relations.Source):
         Encodes the fields in json if needed
         """
         for field in model._fields._order:
-            if values.get(field.store) is not None and field.kind in [list, dict]:
+            if values.get(field.store) is not None and field.kind not in [bool, int, float, str]:
                 values[field.store] = json.loads(values[field.store])
 
         return values
@@ -165,7 +164,7 @@ class Source(relations.Source):
             if field.default is not None and not callable(field.default):
                 default = f"DEFAULT '{field.default}'"
 
-        elif field.kind in [list, dict]:
+        else:
 
             definition.append("TEXT")
 
@@ -263,6 +262,28 @@ class Source(relations.Source):
 
         return model
 
+    @staticmethod
+    def path_retrieve(path):
+        """
+        Generates the JSON pathing for a field
+        """
+
+        if isinstance(path, str):
+            path = path.split('__')
+
+        places = []
+
+        for place in path:
+
+            if relations.INDEX.match(place):
+                places.append(f"[{int(place)}]")
+            elif place[0] == '_':
+                places.append(f'."{place[1:]}"')
+            else:
+                places.append(f".{place}")
+
+        return f"${''.join(places)}"
+
     def field_retrieve(self, field, query, values): # pylint: disable=too-many-branches
         """
         Adds where caluse to query
@@ -272,20 +293,11 @@ class Source(relations.Source):
 
             if operator not in relations.Field.OPERATORS:
 
-                store = []
+
                 path = operator.split("__")
                 operator = path.pop()
 
-                for place in path:
-
-                    if re.match(r'^\d+$', place):
-                        store.append(f"[{int(place)}]")
-                    elif place[0] == '_':
-                        store.append(f'."{place[1:]}"')
-                    else:
-                        store.append(f".{place}")
-
-                values.append(f"${''.join(store)}")
+                values.append(self.path_retrieve(path))
                 store = f"json_extract(`{field.store}`,?)"
 
             else:
@@ -323,6 +335,9 @@ class Source(relations.Source):
 
         for name in model._label:
 
+            path = name.split("__", 1)
+            name = path.pop(0)
+
             field = model._fields._names[name]
 
             parent = False
@@ -336,8 +351,20 @@ class Source(relations.Source):
 
             if not parent:
 
-                ors.append(f'`{field.store}` LIKE ?')
-                values.append(f"%{model._like}%")
+                paths = [path] if path else field.label
+
+                if paths:
+
+                    for path in paths:
+
+                        ors.append(f"json_extract(`{field.store}`,?) LIKE ?")
+                        values.append(Source.path_retrieve(path))
+                        values.append(f"%{model._like}%")
+
+                else:
+
+                    ors.append(f'`{field.store}` LIKE ?')
+                    values.append(f"%{model._like}%")
 
         query.add(wheres="(%s)" % " OR ".join(ors))
 
