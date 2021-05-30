@@ -93,6 +93,28 @@ class Source(relations.Source):
 
         return values
 
+    @staticmethod
+    def walk(path):
+        """
+        Generates the JSON pathing for a field
+        """
+
+        if isinstance(path, str):
+            path = path.split('__')
+
+        places = []
+
+        for place in path:
+
+            if relations.INDEX.match(place):
+                places.append(f"[{int(place)}]")
+            elif place[0] == '_':
+                places.append(f'."{place[1:]}"')
+            else:
+                places.append(f".{place}")
+
+        return f"${''.join(places)}"
+
     def field_init(self, field):
         """
         Make sure there's primary_key and definition
@@ -123,7 +145,7 @@ class Source(relations.Source):
             model._fields._names[model._id].primary_key = True
             model._fields._names[model._id].readonly = True
 
-    def field_define(self, field, definitions): # pylint: disable=too-many-branches
+    def field_define(self, field, definitions, model): # pylint: disable=too-many-branches
         """
         Add what this field is the definition
         """
@@ -177,6 +199,11 @@ class Source(relations.Source):
         if default:
             definition.append(default)
 
+        if field.extract:
+            path = field.extract.split('__')
+            extracted = model._fields._names[path.pop(0)]
+            definition.append(f"AS (json_extract(`{extracted.store}`,'{self.walk(path)}'))")
+
         definitions.append(" ".join(definition))
 
     def model_define(self, cls):
@@ -188,7 +215,7 @@ class Source(relations.Source):
 
         definitions = []
 
-        self.record_define(model._fields, definitions)
+        self.record_define(model._fields, definitions, model)
 
         sep = ',\n  '
 
@@ -262,28 +289,6 @@ class Source(relations.Source):
 
         return model
 
-    @staticmethod
-    def path_retrieve(path):
-        """
-        Generates the JSON pathing for a field
-        """
-
-        if isinstance(path, str):
-            path = path.split('__')
-
-        places = []
-
-        for place in path:
-
-            if relations.INDEX.match(place):
-                places.append(f"[{int(place)}]")
-            elif place[0] == '_':
-                places.append(f'."{place[1:]}"')
-            else:
-                places.append(f".{place}")
-
-        return f"${''.join(places)}"
-
     def field_retrieve(self, field, query, values): # pylint: disable=too-many-branches
         """
         Adds where caluse to query
@@ -297,7 +302,7 @@ class Source(relations.Source):
                 path = operator.split("__")
                 operator = path.pop()
 
-                values.append(self.path_retrieve(path))
+                values.append(self.walk(path))
                 store = f"json_extract(`{field.store}`,?)"
 
             else:
@@ -322,8 +327,8 @@ class Source(relations.Source):
                 query.add(wheres=f"{store}{self.RETRIEVE[operator]}?")
                 values.append(value)
 
-    @staticmethod
-    def model_like(model, query, values):
+    @classmethod
+    def model_like(cls, model, query, values):
         """
         Adds like information to the query
         """
@@ -358,7 +363,7 @@ class Source(relations.Source):
                     for path in paths:
 
                         ors.append(f"json_extract(`{field.store}`,?) LIKE ?")
-                        values.append(Source.path_retrieve(path))
+                        values.append(cls.walk(path))
                         values.append(f"%{model._like}%")
 
                 else:

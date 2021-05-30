@@ -3,7 +3,7 @@
 from setuptools import setup, find_packages
 setup(
     name="relations-sqlite3",
-    version="0.1.2",
+    version="0.1.3",
     package_dir = {'': 'lib'},
     py_modules = [
         'relations_sqlite3'
