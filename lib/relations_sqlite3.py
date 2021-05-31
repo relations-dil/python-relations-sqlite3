@@ -73,7 +73,7 @@ class Source(relations.Source):
         encoded = []
 
         for field in model._fields._order:
-            if field.readonly:
+            if field.readonly or field.inject:
                 continue
             if values.get(field.store) is not None and field.kind not in [bool, int, float, str]:
                 encoded.append(json.dumps(values[field.store]))
@@ -149,6 +149,9 @@ class Source(relations.Source):
         """
         Add what this field is the definition
         """
+
+        if field.inject:
+            return
 
         if field.definition is not None:
             definitions.append(field.definition)
@@ -240,7 +243,7 @@ class Source(relations.Source):
         Adds values to clause if not readonly
         """
 
-        if not field.readonly:
+        if not field.readonly and not field.inject:
             fields.append(f"`{field.store}`")
             clause.append("?")
             field.changed = False
@@ -478,7 +481,7 @@ class Source(relations.Source):
         Preps values to dict (if not readonly)
         """
 
-        if not field.readonly:
+        if not field.readonly and not field.inject:
             if field.replace and not field.changed:
                 field.value = field.default() if callable(field.default) else field.default
             if changed is None or field.changed == changed:
