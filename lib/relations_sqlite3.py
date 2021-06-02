@@ -408,7 +408,7 @@ class Source(relations.Source):
             query.add(limits="?")
             values.append(model._limit)
 
-    def model_count(self, model, verify=True):
+    def model_count(self, model):
         """
         Executes the count
         """
