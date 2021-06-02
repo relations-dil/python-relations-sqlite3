@@ -1,4 +1,4 @@
-git+https://github.com/gaf3/python-relations.git@0.4.6#egg=relations
+git+https://github.com/gaf3/python-relations.git@f656d3b#egg=relations
 ptvsd==4.3.2
 coverage==5.2.1
 pylint==2.5.3
