@@ -145,7 +145,7 @@ class Source(relations.Source):
             model._fields._names[model._id].primary_key = True
             model._fields._names[model._id].auto = True
 
-    def field_define(self, field, definitions, model): # pylint: disable=too-many-branches
+    def field_define(self, field, definitions): # pylint: disable=too-many-branches
         """
         Add what this field is the definition
         """
@@ -202,12 +202,26 @@ class Source(relations.Source):
         if default:
             definition.append(default)
 
-        if field.extract:
-            path = field.extract.split('__')
-            extracted = model._fields._names[path.pop(0)]
-            definition.append(f"AS (json_extract(`{extracted.store}`,'{self.walk(path)}'))")
-
         definitions.append(" ".join(definition))
+
+        for store in sorted((field.extract or {}).keys()):
+
+            kind = field.extract[store]
+
+            definition = [f"`{field.store}__{store}`"]
+
+            if kind == bool:
+                definition.append("INTEGER")
+            elif kind == int:
+                definition.append("INTEGER")
+            elif kind == float:
+                definition.append("REAL")
+            else:
+                definition.append("TEXT")
+
+            definition.append(f"AS (json_extract(`{field.store}`,'{self.walk(store)}'))")
+
+            definitions.append(" ".join(definition))
 
     def model_define(self, cls):
 
@@ -218,7 +232,7 @@ class Source(relations.Source):
 
         definitions = []
 
-        self.record_define(model._fields, definitions, model)
+        self.record_define(model._fields, definitions)
 
         sep = ',\n  '
 
@@ -300,12 +314,16 @@ class Source(relations.Source):
 
             if operator not in relations.Field.OPERATORS:
 
+                path, operator = operator.rsplit("__", 1)
 
-                path = operator.split("__")
-                operator = path.pop()
+                if path in (field.extract or {}):
 
-                values.append(self.walk(path))
-                store = f"json_extract(`{field.store}`,?)"
+                    store = store = f'`{field.store}__{path}`'
+
+                else:
+
+                    values.append(self.walk(path))
+                    store = f"json_extract(`{field.store}`,?)"
 
             else:
 
@@ -358,15 +376,22 @@ class Source(relations.Source):
 
             if not parent:
 
-                paths = [path] if path else field.label
+                paths = path if path else field.label
 
                 if paths:
 
                     for path in paths:
 
-                        ors.append(f"json_extract(`{field.store}`,?) LIKE ?")
-                        values.append(cls.walk(path))
-                        values.append(f"%{model._like}%")
+                        if path in (field.extract or {}):
+
+                            ors.append(f'`{field.store}__{path}` LIKE ?')
+                            values.append(f"%{model._like}%")
+
+                        else:
+
+                            ors.append(f"json_extract(`{field.store}`,?) LIKE ?")
+                            values.append(cls.walk(path))
+                            values.append(f"%{model._like}%")
 
                 else:
 
