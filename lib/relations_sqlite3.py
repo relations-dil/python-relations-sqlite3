@@ -330,11 +330,17 @@ class Source(relations.Source):
                 store = f"`{field.store}`"
 
             if operator == "in":
-                query.add(wheres=f"{store} IN ({','.join(['?' for each in value])})")
-                values.extend(value)
+                if value:
+                    query.add(wheres=f"{store} IN ({','.join(['?' for each in value])})")
+                    values.extend(value)
+                else:
+                    query.add(wheres="FALSE")
             elif operator == "ne":
-                query.add(wheres=f"{store} NOT IN ({','.join(['?' for each in value])})")
-                values.extend(value)
+                if value:
+                    query.add(wheres=f"{store} NOT IN ({','.join(['?' for each in value])})")
+                    values.extend(value)
+                else:
+                    query.add(wheres="TRUE")
             elif operator == "like":
                 query.add(wheres=f'{store} LIKE ?')
                 values.append(f"%{value}%")
@@ -370,9 +376,12 @@ class Source(relations.Source):
             for relation in model.PARENTS.values():
                 if field.name == relation.child_field:
                     parent = relation.Parent.many(like=model._like).limit(model._chunk)
-                    ors.append(f'`{field.store}` IN ({",".join(["?" for each in parent[relation.parent_field]])})')
-                    values.extend(parent[relation.parent_field])
-                    model.overflow = model.overflow or parent.overflow
+                    if parent[relation.parent_field]:
+                        ors.append(f'`{field.store}` IN ({",".join(["?" for each in parent[relation.parent_field]])})')
+                        values.extend(parent[relation.parent_field])
+                        model.overflow = model.overflow or parent.overflow
+                    else:
+                        parent = True
 
             if not parent:
 
