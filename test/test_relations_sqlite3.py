@@ -2,7 +2,9 @@ import unittest
 import unittest.mock
 
 import os
+import shutil
 import copy
+import json
 
 import sqlite3
 
@@ -87,10 +89,18 @@ class TestSource(unittest.TestCase):
 
         self.source = relations_sqlite3.Source("SQLite3Source", "/test_source.db")
 
+        shutil.rmtree("ddl", ignore_errors=True)
+        os.makedirs("ddl", exist_ok=True)
+
     def tearDown(self):
 
         self.source.connection.close()
-        os.remove("/test_source.db")
+
+        if os.path.exists("/test_source.db"):
+            os.remove("/test_source.db")
+
+        if os.path.exists("/private.db"):
+            os.remove("/private.db")
 
     @unittest.mock.patch("relations.SOURCES", {})
     @unittest.mock.patch("sqlite3.connect", unittest.mock.MagicMock())
@@ -106,14 +116,16 @@ class TestSource(unittest.TestCase):
         self.assertEqual(source.connection.row_factory, sqlite3.Row)
         self.assertEqual(relations.SOURCES["unit"], source)
 
-        source = relations_sqlite3.Source("test", "init", host="db.com", extra="stuff")
+        source = relations_sqlite3.Source("test", "init.db", schemas={"main": "init", "other": "other.db"}, extra="stuff")
         self.assertTrue(source.created)
         self.assertEqual(source.name, "test")
-        self.assertEqual(source.database, "init")
+        self.assertEqual(source.database, "init.db")
+        self.assertEqual(source.schemas, {"main": "init", "other": "other.db"})
+        self.assertEqual(source.schema, "init")
         self.assertEqual(source.connection, sqlite3.connect.return_value)
         self.assertEqual(source.connection.row_factory, sqlite3.Row)
         self.assertEqual(relations.SOURCES["test"], source)
-        sqlite3.connect.assert_called_once_with("init", host="db.com", extra="stuff")
+        sqlite3.connect.assert_called_once_with("init.db", extra="stuff")
 
     @unittest.mock.patch("relations.SOURCES", {})
     @unittest.mock.patch("sqlite3.connect", unittest.mock.MagicMock())
@@ -128,16 +140,83 @@ class TestSource(unittest.TestCase):
         del relations.SOURCES["test"]
         sqlite3.connect.return_value.close.assert_called_once_with()
 
-    def test_table(self):
+    def test_table_names(self):
+
+        model = {
+            "table": "people"
+        }
+        self.assertEqual(self.source.table_names(model), ("people", []))
+
+        self.source.schema = "public"
+        self.assertEqual(self.source.table_names(model), ("people", ["`main`"]))
+
+        model["schema"] = "things"
+        self.assertEqual(self.source.table_names(model), ("people", ["`things`"]))
+
+        self.source.schema = "things"
+        self.assertEqual(self.source.table_names(model), ("people", ["`main`"]))
 
         model = unittest.mock.MagicMock()
-        model.DATABASE = None
+        model.SCHEMA = None
+        self.source.schema = None
 
+        self.source.schema = "public"
         model.TABLE = "people"
+        self.assertEqual(self.source.table_names(model), ("people", ["`main`"]))
+
+        model.SCHEMA = "things"
+        self.assertEqual(self.source.table_names(model), ("people", ["`things`"]))
+
+        self.source.schema = "things"
+        self.assertEqual(self.source.table_names(model), ("people", ["`main`"]))
+
+    def test_table(self):
+
+        model = {
+            "table": "people"
+        }
         self.assertEqual(self.source.table(model), "`people`")
 
-        model.DATABASE = "stuff"
-        self.assertEqual(self.source.table(model), "`stuff___people`")
+        self.source.schema = "public"
+        self.assertEqual(self.source.table(model), "`main`.`people`")
+
+        model["schema"] = "things"
+        self.assertEqual(self.source.table(model), "`things`.`people`")
+
+        model = unittest.mock.MagicMock()
+        model.SCHEMA = None
+
+        self.source.schema = "public"
+        model.TABLE = "people"
+        self.assertEqual(self.source.table(model), "`main`.`people`")
+
+        model.SCHEMA = "things"
+        self.assertEqual(self.source.table(model), "`things`.`people`")
+
+        self.assertEqual(self.source.table(model, full=False), "`people`")
+
+    def test_index(self):
+
+        model = {
+            "table": "people"
+        }
+        self.assertEqual(self.source.index(model, "be-cray"), "`people_be_cray`")
+
+        self.source.schema = "public"
+        self.assertEqual(self.source.index(model, "be-cray"), "`main`.`people_be_cray`")
+
+        model["schema"] = "things"
+        self.assertEqual(self.source.index(model, "be-cray"), "`things`.`people_be_cray`")
+
+        model = unittest.mock.MagicMock()
+        model.SCHEMA = None
+
+        self.source.schema = "public"
+        model.TABLE = "people"
+        self.assertEqual(self.source.index(model, "be-cray"), "`main`.`people_be_cray`")
+
+        model.SCHEMA = "things"
+        self.assertEqual(self.source.index(model, "be-cray"), "`things`.`people_be_cray`")
 
     def test_encode(self):
 
@@ -264,209 +343,160 @@ class TestSource(unittest.TestCase):
 
         self.source.model_init(model)
 
-        self.assertIsNone(model.DATABASE)
+        self.assertIn("QUERY", model.UNDEFINE)
+        self.assertIsNone(model.SCHEMA)
         self.assertEqual(model.TABLE, "check")
         self.assertEqual(model.QUERY.get(), "SELECT * FROM `check`")
         self.assertIsNone(model.DEFINITION)
         self.assertTrue(model._fields._names["id"].primary_key)
         self.assertTrue(model._fields._names["id"].auto)
 
-    def test_field_define(self):
-
-        def deffer():
-            pass
+    def test_column_define(self):
 
         # Specific
 
         field = relations.Field(int, definition="id")
         self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["id"])
+        self.assertEqual(self.source.column_define(field.define()), "id")
 
         # INTEGER (bool)
 
         field = relations.Field(bool, store="_flag")
         self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["`_flag` INTEGER"])
+        self.assertEqual(self.source.column_define(field.define()), "`_flag` INTEGER")
 
         # INTEGER (bool) default
 
         field = relations.Field(bool, store="_flag", default=False)
         self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["`_flag` INTEGER NOT NULL DEFAULT 0"])
-
-        # INTEGER (bool) function default
-
-        field = relations.Field(bool, store="_flag", default=deffer)
-        self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["`_flag` INTEGER NOT NULL"])
+        self.assertEqual(self.source.column_define(field.define()), "`_flag` INTEGER NOT NULL DEFAULT 0")
 
         # INTEGER (bool) none
 
         field = relations.Field(bool, store="_flag", none=False)
         self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["`_flag` INTEGER NOT NULL"])
+        self.assertEqual(self.source.column_define(field.define()), "`_flag` INTEGER NOT NULL")
 
         # INTEGER
 
         field = relations.Field(int, store="_id")
         self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["`_id` INTEGER"])
+        self.assertEqual(self.source.column_define(field.define()), "`_id` INTEGER")
 
         # INTEGER default
 
         field = relations.Field(int, store="_id", default=0)
         self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["`_id` INTEGER NOT NULL DEFAULT 0"])
-
-        # INTEGER function default
-
-        field = relations.Field(int, store="_id", default=deffer)
-        self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["`_id` INTEGER NOT NULL"])
+        self.assertEqual(self.source.column_define(field.define()), "`_id` INTEGER NOT NULL DEFAULT 0")
 
         # INTEGER none
 
         field = relations.Field(int, store="_id", none=False)
         self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["`_id` INTEGER NOT NULL"])
+        self.assertEqual(self.source.column_define(field.define()), "`_id` INTEGER NOT NULL")
 
         # INTEGER primary_key
 
         field = relations.Field(int, store="_id", primary_key=True)
         self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["`_id` INTEGER PRIMARY KEY"])
+        self.assertEqual(self.source.column_define(field.define()), "`_id` INTEGER PRIMARY KEY")
 
         # INTEGER full
 
         field = relations.Field(int, store="_id", none=False, primary_key=True, default=0)
         self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["`_id` INTEGER NOT NULL PRIMARY KEY DEFAULT 0"])
+        self.assertEqual(self.source.column_define(field.define()), "`_id` INTEGER NOT NULL PRIMARY KEY DEFAULT 0")
 
         # REAL
 
         field = relations.Field(float, store="spend")
         self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["`spend` REAL"])
+        self.assertEqual(self.source.column_define(field.define()), "`spend` REAL")
 
         # REAL default
 
         field = relations.Field(float, store="spend", default=0.1)
         self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["`spend` REAL NOT NULL DEFAULT 0.1"])
-
-        # REAL function default
-
-        field = relations.Field(float, store="spend", default=deffer)
-        self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["`spend` REAL NOT NULL"])
+        self.assertEqual(self.source.column_define(field.define()), "`spend` REAL NOT NULL DEFAULT 0.1")
 
         # REAL none
 
         field = relations.Field(float, store="spend", none=False)
         self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["`spend` REAL NOT NULL"])
+        self.assertEqual(self.source.column_define(field.define()), "`spend` REAL NOT NULL")
 
         # TEXT
 
         field = relations.Field(str, name="name")
         self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["`name` TEXT"])
+        self.assertEqual(self.source.column_define(field.define()), "`name` TEXT")
 
         # TEXT length
 
         field = relations.Field(str, name="name", length=32)
         self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["`name` TEXT"])
+        self.assertEqual(self.source.column_define(field.define()), "`name` TEXT")
 
         # TEXT default
 
         field = relations.Field(str, name="name", default='ya')
         self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["`name` TEXT NOT NULL DEFAULT 'ya'"])
-
-        # TEXT function default
-
-        field = relations.Field(str, name="name", default=deffer)
-        self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["`name` TEXT NOT NULL"])
+        self.assertEqual(self.source.column_define(field.define()), "`name` TEXT NOT NULL DEFAULT 'ya'")
 
         # TEXT none
 
         field = relations.Field(str, name="name", none=False)
         self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["`name` TEXT NOT NULL"])
+        self.assertEqual(self.source.column_define(field.define()), "`name` TEXT NOT NULL")
 
         # TEXT full
 
         field = relations.Field(str, name="name", length=32, none=False, default='ya')
         self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ["`name` TEXT NOT NULL DEFAULT 'ya'"])
+        self.assertEqual(self.source.column_define(field.define()), "`name` TEXT NOT NULL DEFAULT 'ya'")
 
         # TEXT (list)
 
         field = relations.Field(list, name='stuff')
         self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ['`stuff` TEXT NOT NULL'])
+        self.assertEqual(self.source.column_define(field.define()), '`stuff` TEXT NOT NULL')
 
         # TEXT (dict)
 
         field = relations.Field(dict, name='things')
         self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ['`things` TEXT NOT NULL'])
+        self.assertEqual(self.source.column_define(field.define()), '`things` TEXT NOT NULL')
 
         # TEXT (anything)
 
         field = relations.Field(ipaddress.IPv4Address, name='ip', attr="whatev")
         self.source.field_init(field)
-        definitions = []
-        self.source.field_define(field, definitions)
-        self.assertEqual(definitions, ['`ip` TEXT'])
+        self.assertEqual(self.source.column_define(field.define()), '`ip` TEXT')
+
+    def test_extract_define(self):
+
+        self.assertEqual(
+            self.source.extract_define('grab', 'a__b__0___1', 'bool'),
+            "`grab__a__b__0___1` INTEGER AS (json_extract(`grab`,'$.a.b[0].\"1\"'))"
+        )
+        self.assertEqual(
+            self.source.extract_define('grab', 'c__b__0___1', 'int'),
+            "`grab__c__b__0___1` INTEGER AS (json_extract(`grab`,'$.c.b[0].\"1\"'))"
+        )
+        self.assertEqual(
+            self.source.extract_define('grab', 'c__d__0___1', 'float'),
+            "`grab__c__d__0___1` REAL AS (json_extract(`grab`,'$.c.d[0].\"1\"'))"
+        )
+        self.assertEqual(
+            self.source.extract_define('grab', 'c__d__1___1', 'str'),
+            "`grab__c__d__1___1` TEXT AS (json_extract(`grab`,'$.c.d[1].\"1\"'))"
+        )
+        self.assertEqual(
+            self.source.extract_define('grab', 'c__d__1___2', 'dict'),
+            "`grab__c__d__1___2` TEXT AS (json_extract(`grab`,'$.c.d[1].\"2\"'))"
+        )
+
+    def test_field_define(self):
 
         # EXTRACTED
 
@@ -479,7 +509,7 @@ class TestSource(unittest.TestCase):
         })
         self.source.field_init(field)
         definitions = []
-        self.source.field_define(field, definitions)
+        self.source.field_define(field.define(), definitions)
         self.assertEqual(definitions, [
             "`grab` TEXT NOT NULL",
             "`grab__a__b__0___1` INTEGER AS (json_extract(`grab`,'$.a.b[0].\"1\"'))",
@@ -494,8 +524,20 @@ class TestSource(unittest.TestCase):
         field = relations.Field(str, name='grab', inject="things__a__b__0___1")
         self.source.field_init(field)
         definitions = []
-        self.source.field_define(field, definitions)
+        self.source.field_define(field.define(), definitions)
         self.assertEqual(definitions, [])
+
+    def test_index_define(self):
+
+        self.assertEqual(
+            self.source.index_define(Simple.thy().define(), "special", ["name", "rank"], unique=True),
+            "CREATE UNIQUE INDEX `simple_special` ON `simple` (`name`,`rank`)"
+        )
+
+        self.assertEqual(
+            self.source.index_define(Simple.thy().define(), "special", ["name", "rank"]),
+            "CREATE INDEX `simple_special` ON `simple` (`name`,`rank`)"
+        )
 
     def test_model_define(self):
 
@@ -509,10 +551,10 @@ class TestSource(unittest.TestCase):
 
             INDEX = "id"
 
-        self.assertEqual(Simple.define(), "whatever")
+        self.assertEqual(self.source.model_define(Simple.thy().define()), ["whatever"])
 
         Simple.DEFINITION = None
-        self.assertEqual(Simple.define(), [
+        self.assertEqual(self.source.model_define(Simple.thy().define()), [
             """CREATE TABLE IF NOT EXISTS `simple` (
   `id` INTEGER PRIMARY KEY,
   `name` TEXT NOT NULL
@@ -523,6 +565,179 @@ class TestSource(unittest.TestCase):
 
         cursor = self.source.connection.cursor()
         [cursor.execute(statement) for statement in Simple.define()]
+        cursor.close()
+
+    def test_field_add(self):
+
+        # EXTRACTED
+
+        field = relations.Field(dict, name='grab', extract={
+            "a__b__0___1": bool,
+            "c__b__0___1": int,
+            "c__d__0___1": float,
+            "c__d__1___1": str,
+            "c__d__1___2": list
+        })
+        self.source.field_init(field)
+        migrations = []
+        self.source.field_add(field.define(), migrations)
+        self.assertEqual(migrations, [
+            "ADD `grab` TEXT NOT NULL",
+            "ADD `grab__a__b__0___1` INTEGER AS (json_extract(`grab`,'$.a.b[0].\"1\"'))",
+            "ADD `grab__c__b__0___1` INTEGER AS (json_extract(`grab`,'$.c.b[0].\"1\"'))",
+            "ADD `grab__c__d__0___1` REAL AS (json_extract(`grab`,'$.c.d[0].\"1\"'))",
+            "ADD `grab__c__d__1___1` TEXT AS (json_extract(`grab`,'$.c.d[1].\"1\"'))",
+            "ADD `grab__c__d__1___2` TEXT AS (json_extract(`grab`,'$.c.d[1].\"2\"'))"
+        ])
+
+        # INJECTED
+
+        field = relations.Field(str, name='grab', inject="things__a__b__0___1")
+        self.source.field_init(field)
+        migrations = []
+        self.source.field_add(field.define(), migrations)
+        self.assertEqual(migrations, [])
+
+    def test_field_remove(self):
+
+        # EXTRACTED
+
+        field = relations.Field(dict, name='grab', extract={
+            "a__b__0___1": bool,
+            "c__b__0___1": int,
+            "c__d__0___1": float,
+            "c__d__1___1": str,
+            "c__d__1___2": list
+        })
+        self.source.field_init(field)
+        migrations = []
+        self.source.field_remove(field.define(), migrations)
+        self.assertEqual(migrations, [
+            "DROP `grab`",
+            "DROP `grab__a__b__0___1`",
+            "DROP `grab__c__b__0___1`",
+            "DROP `grab__c__d__0___1`",
+            "DROP `grab__c__d__1___1`",
+            "DROP `grab__c__d__1___2`"
+        ])
+
+        # INJECTED
+
+        field = relations.Field(str, name='toss', inject="things__a__b__0___1")
+        self.source.field_init(field)
+        migrations = []
+        self.source.field_remove(field.define(), migrations)
+        self.assertEqual(migrations, [])
+
+    def test_model_add(self):
+
+        self.assertEqual(self.source.model_add(Simple.thy().define()), [
+            """CREATE TABLE IF NOT EXISTS `simple` (
+  `id` INTEGER PRIMARY KEY,
+  `name` TEXT NOT NULL
+)""",
+            """CREATE UNIQUE INDEX `simple_name` ON `simple` (`name`)"""
+        ])
+
+        cursor = self.source.connection.cursor()
+        cursor.execute(self.source.model_add(Simple.thy().define())[0])
+        cursor.close()
+
+    def test_model_remove(self):
+
+        self.assertEqual(self.source.model_remove(Simple.thy().define()), ["""DROP TABLE IF EXISTS `simple`"""])
+
+        cursor = self.source.connection.cursor()
+        cursor.execute(self.source.model_add(Simple.thy().define())[0])
+        cursor.execute(self.source.model_remove(Simple.thy().define())[0])
+        cursor.close()
+
+    def test_model_change(self):
+
+        class Simple(relations.Model):
+
+            SCHEMA = "private"
+            SOURCE = "SQLite3Source"
+
+            id = int
+            name = str
+            fie = int
+            foe = int
+
+            UNIQUE = {
+                "foe": ["foe"],
+                "labels": ["name", "id"]
+            }
+            INDEX = {
+                "speedy": ["id", "name"],
+                "fie": ["fie"],
+                "name": ["name"]
+            }
+
+        migration = {
+            "table": "simples",
+            "fields": {
+                "add": [
+                    {
+                        "name": "fee",
+                        "store": "fee",
+                        "kind": "int",
+                        "none": True
+                    }
+                ],
+                "remove": ["fie"],
+                "change": {
+                    "foe": {
+                        "name": "fum",
+                        "kind": "float"
+                    }
+                }
+            },
+            "unique": {
+                "add": {
+                    "fee": ["fee"]
+                },
+                "remove": ["foe"],
+                "rename": {
+                    "labels": "label"
+                }
+            },
+            "index": {
+                "add": {
+                    "foe-fee": ["foe", "fee"]
+                },
+                "remove": ["fie"],
+                "rename": {
+                    "speedy": "speed"
+                }
+            }
+        }
+
+        self.assertEqual(self.source.model_change(Simple.thy().define(), migration), [
+            'ALTER TABLE `private`.`simple` ADD `fee` INTEGER',
+            "ALTER TABLE `private`.`simple` RENAME TO `_old_simple`",
+            "DROP INDEX `private`.`simple_foe`",
+            "DROP INDEX `private`.`simple_labels`",
+            "DROP INDEX `private`.`simple_fie`",
+            "DROP INDEX `private`.`simple_name`",
+            "DROP INDEX `private`.`simple_speedy`",
+            """CREATE TABLE IF NOT EXISTS `private`.`simples` (
+  `id` INTEGER PRIMARY KEY,
+  `name` TEXT NOT NULL,
+  `foe` REAL,
+  `fee` INTEGER
+)""",
+            "CREATE UNIQUE INDEX `private`.`simples_label` ON `simples` (`name`,`id`)",
+            "CREATE INDEX `private`.`simples_name` ON `simples` (`name`)",
+            "CREATE INDEX `private`.`simples_speed` ON `simples` (`id`,`name`)",
+            "INSERT INTO `private`.`simples` SELECT `fee` AS `fee`,`foe` AS `foe`,`id` AS `id`,`name` AS `name` FROM `private`.`_old_simple`",
+            "DROP TABLE `private`.`_old_simple`"
+        ])
+
+        cursor = self.source.connection.cursor()
+        cursor.execute("ATTACH DATABASE '/private.db' AS `private`")
+        [cursor.execute(statement) for statement in self.source.model_define(Simple.thy().define())]
+        [cursor.execute(statement) for statement in self.source.model_change(Simple.thy().define(), migration)]
         cursor.close()
 
     def test_field_create(self):
@@ -1143,3 +1358,123 @@ class TestSource(unittest.TestCase):
 
         plain = Plain(0, "nope").create()
         self.assertRaisesRegex(relations.ModelError, "plain: nothing to delete from", plain.delete)
+
+    def test_definition_convert(self):
+
+        with open("ddl/general.json", 'w') as ddl_file:
+            json.dump({
+                "simple": Simple.thy().define(),
+                "plain": Plain.thy().define()
+            }, ddl_file)
+
+        os.makedirs("ddl/sourced", exist_ok=True)
+
+        self.source.definition_convert("ddl/general.json", "ddl/sourced")
+
+        with open("ddl/sourced/general.sql", 'r') as ddl_file:
+            self.assertEqual(ddl_file.read(), """CREATE TABLE IF NOT EXISTS `plain` (
+  `simple_id` INTEGER,
+  `name` TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX `plain_simple_id_name` ON `plain` (`simple_id`,`name`);
+
+CREATE TABLE IF NOT EXISTS `simple` (
+  `id` INTEGER PRIMARY KEY,
+  `name` TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX `simple_name` ON `simple` (`name`);
+""")
+
+    def test_migration_convert(self):
+
+        with open("ddl/general.json", 'w') as ddl_file:
+            json.dump({
+                "add": {"simple": Simple.thy().define()},
+                "remove": {"simple": Simple.thy().define()},
+                "change": {
+                    "simple": {
+                        "definition": Simple.thy().define(),
+                        "migration": {
+                            "source": "PyMySQLSource",
+                            "table": "simples"
+                        }
+                    }
+                }
+            }, ddl_file)
+
+        os.makedirs("ddl/sourced", exist_ok=True)
+
+        self.source.migration_convert("ddl/general.json", "ddl/sourced")
+
+        with open("ddl/sourced/general.sql", 'r') as ddl_file:
+            self.assertEqual(ddl_file.read(), """CREATE TABLE IF NOT EXISTS `simple` (
+  `id` INTEGER PRIMARY KEY,
+  `name` TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX `simple_name` ON `simple` (`name`);
+
+DROP TABLE IF EXISTS `simple`;
+
+ALTER TABLE `simple` RENAME TO `_old_simple`;
+
+DROP INDEX `simple_name`;
+
+CREATE TABLE IF NOT EXISTS `simples` (
+  `id` INTEGER PRIMARY KEY,
+  `name` TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX `simples_name` ON `simples` (`name`);
+
+INSERT INTO `simples` SELECT `id` AS `id`,`name` AS `name` FROM `_old_simple`;
+
+DROP TABLE `_old_simple`;
+""")
+
+    def test_execute(self):
+
+        self.source.execute("")
+
+        self.source.execute("""CREATE TABLE IF NOT EXISTS `simple` (
+  `id` INTEGER PRIMARY KEY,
+  `name` TEXT NOT NULL
+)""")
+
+        cursor = self.source.connection.cursor()
+
+        cursor.execute("SELECT * FROM pragma_table_info('simple')")
+
+        id = cursor.fetchone()
+        self.assertEqual(id["name"], "id")
+        self.assertEqual(id["type"], "INTEGER")
+
+        name = cursor.fetchone()
+        self.assertEqual(name["name"], "name")
+        self.assertEqual(name["type"], "TEXT")
+
+    def test_migrate(self):
+
+        migrations = relations.Migrations()
+
+        migrations.generate([Unit])
+        migrations.generate([Unit, Test])
+        migrations.convert(self.source.name)
+
+        self.assertTrue(self.source.migrate(f"ddl/{self.source.name}/{self.source.KIND}"))
+
+        self.assertEqual(Unit.many().count(), 0)
+        self.assertEqual(Test.many().count(), 0)
+
+        self.assertFalse(self.source.migrate(f"ddl/{self.source.name}/{self.source.KIND}"))
+
+        migrations.generate([Unit, Test, Case])
+        migrations.convert(self.source.name)
+
+        self.assertTrue(self.source.migrate(f"ddl/{self.source.name}/{self.source.KIND}"))
+
+        self.assertEqual(Case.many().count(), 0)
+
+        self.assertFalse(self.source.migrate(f"ddl/{self.source.name}/{self.source.KIND}"))
