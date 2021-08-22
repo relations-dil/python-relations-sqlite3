@@ -978,6 +978,66 @@ class TestSource(unittest.TestCase):
         self.assertEqual(query.wheres, "`id`<=?")
         self.assertEqual(values, [1])
 
+       # has
+
+        field = relations.Field(list, store="meta")
+        self.source.field_init(field)
+        field.filter("1", "has")
+        query = relations.query.Query()
+        values = []
+        self.source.field_retrieve(field, query, values)
+        self.assertEqual(query.wheres, "(json_extract(?,'$') IN (SELECT json_data.value FROM json_each(`meta`) AS json_data))")
+        self.assertEqual(values, ['"1"'])
+
+        field = relations.Field(dict, store="meta")
+        self.source.field_init(field)
+        field.filter("1", "a__has")
+        query = relations.query.Query()
+        values = []
+        self.source.field_retrieve(field, query, values)
+        self.assertEqual(query.wheres, "(json_extract(?,'$') IN (SELECT json_data.value FROM json_each(json_extract(`meta`,?)) AS json_data))")
+        self.assertEqual(values, ['"1"', '$.a'])
+
+        # any
+
+        field = relations.Field(list, store="meta")
+        self.source.field_init(field)
+        field.filter(["1", "2"], "any")
+        query = relations.query.Query()
+        values = []
+        self.source.field_retrieve(field, query, values)
+        self.assertEqual(query.wheres, "(json_extract(?,'$') IN (SELECT json_data.value FROM json_each(`meta`) AS json_data) OR json_extract(?,'$') IN (SELECT json_data.value FROM json_each(`meta`) AS json_data))")
+        self.assertEqual(values, ['"1"', '"2"'])
+
+        field = relations.Field(dict, store="meta")
+        self.source.field_init(field)
+        field.filter(["1", "2"], "a__any")
+        query = relations.query.Query()
+        values = []
+        self.source.field_retrieve(field, query, values)
+        self.assertEqual(query.wheres, "(json_extract(?,'$') IN (SELECT json_data.value FROM json_each(json_extract(`meta`,?)) AS json_data) OR json_extract(?,'$') IN (SELECT json_data.value FROM json_each(json_extract(`meta`,?)) AS json_data))")
+        self.assertEqual(values, ['"1"', '$.a', '"2"', '$.a'])
+
+        # all
+
+        field = relations.Field(list, store="meta")
+        self.source.field_init(field)
+        field.filter(["1", "2"], "all")
+        query = relations.query.Query()
+        values = []
+        self.source.field_retrieve(field, query, values)
+        self.assertEqual(query.wheres, "(json_extract(?,'$') IN (SELECT json_data.value FROM json_each(`meta`) AS json_data) AND json_extract(?,'$') IN (SELECT json_data.value FROM json_each(`meta`) AS json_data)) AND json_array_length(`meta`)=?")
+        self.assertEqual(values, ['"1"', '"2"', 2])
+
+        field = relations.Field(dict, store="meta")
+        self.source.field_init(field)
+        field.filter(["1", "2"], "a__all")
+        query = relations.query.Query()
+        values = []
+        self.source.field_retrieve(field, query, values)
+        self.assertEqual(query.wheres, "(json_extract(?,'$') IN (SELECT json_data.value FROM json_each(json_extract(`meta`,?)) AS json_data) AND json_extract(?,'$') IN (SELECT json_data.value FROM json_each(json_extract(`meta`,?)) AS json_data)) AND json_array_length(json_extract(`meta`,?))=?")
+        self.assertEqual(values, ['"1"', '$.a', '"2"', '$.a', '$.a', 2])
+
     def test_model_like(self):
 
         cursor = self.source.connection.cursor()
@@ -1156,7 +1216,7 @@ class TestSource(unittest.TestCase):
         self.assertEqual(Unit.many().sort("-name").limit(0).name, [])
         self.assertEqual(Unit.many(name="people").limit(1).name, ["people"])
 
-        Meta("dive", stuff=[1, 2, 3, None], things={"a": {"b": [1], "c": "sure"}, "4": 5, "for": [{"1": "yep"}]}).create()
+        Meta("dive", stuff=[1, 2, 3, None], things={"a": {"b": [1, 2], "c": "sure"}, "4": 5, "for": [{"1": "yep"}]}).create()
 
         model = Meta.many(stuff__1=2)
         self.assertEqual(model[0].name, "dive")
@@ -1183,6 +1243,24 @@ class TestSource(unittest.TestCase):
         self.assertEqual(len(model), 0)
 
         model = Meta.many(things___4=6)
+        self.assertEqual(len(model), 0)
+
+        model = Meta.many(things__a__b__has=1)
+        self.assertEqual(len(model), 1)
+
+        model = Meta.many(things__a__b__has=3)
+        self.assertEqual(len(model), 0)
+
+        model = Meta.many(things__a__b__any=[1, 3])
+        self.assertEqual(len(model), 1)
+
+        model = Meta.many(things__a__b__any=[4, 3])
+        self.assertEqual(len(model), 0)
+
+        model = Meta.many(things__a__b__all=[2, 1])
+        self.assertEqual(len(model), 1)
+
+        model = Meta.many(things__a__b__all=[3, 2, 1])
         self.assertEqual(len(model), 0)
 
         Net(ip="1.2.3.4", subnet="1.2.3.0/24").create()

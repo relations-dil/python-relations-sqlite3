@@ -488,12 +488,14 @@ class Source(relations.Source): # pylint: disable=too-many-public-methods
 
         return model
 
-    def field_retrieve(self, field, query, values): # pylint: disable=too-many-branches
+    def field_retrieve(self, field, query, values): # pylint: disable=too-many-branches,too-many-statements
         """
         Adds where caluse to query
         """
 
         for operator, value in (field.criteria or {}).items():
+
+            walked = None
 
             if operator not in relations.Field.OPERATORS:
 
@@ -505,7 +507,8 @@ class Source(relations.Source): # pylint: disable=too-many-public-methods
 
                 else:
 
-                    values.append(self.walk(path))
+                    walked = self.walk(path)
+                    values.append(walked)
                     store = f"json_extract(`{field.store}`,?)"
 
             else:
@@ -532,6 +535,24 @@ class Source(relations.Source): # pylint: disable=too-many-public-methods
                 values.append(f"%{value}%")
             elif operator == "null":
                 query.add(wheres=f'{store} {"IS" if value else "IS NOT"} NULL')
+            elif operator in ["has", "any", "all"]:
+                if walked is not None:
+                    values.pop(-1)
+                ins = []
+                for each in value:
+                    ins.append(f"json_extract(?,'$') IN (SELECT json_data.value FROM json_each({store}) AS json_data)")
+                    values.append(json.dumps(each))
+                    if walked is not None:
+                        values.append(walked)
+                if operator in ["has", "all"]:
+                    query.add(wheres=f"({' AND '.join(ins)})")
+                else:
+                    query.add(wheres=f"({' OR '.join(ins)})")
+                if operator == "all":
+                    query.add(wheres=f"json_array_length({store})=?")
+                    if walked is not None:
+                        values.append(walked)
+                    values.append(len(value))
             else:
                 query.add(wheres=f"{store}{self.RETRIEVE[operator]}?")
                 values.append(value)
