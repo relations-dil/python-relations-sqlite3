@@ -517,14 +517,14 @@ class Source(relations.Source): # pylint: disable=too-many-public-methods
 
             if operator == "in":
                 if value:
-                    query.add(wheres=f"{store} IN ({','.join(['?' for each in value])})")
-                    values.extend(value)
+                    query.add(wheres=f"{store} IN ({','.join(['?' for _ in value])})")
+                    values.extend(sorted(value))
                 else:
                     query.add(wheres="FALSE")
             elif operator == "ne":
                 if value:
-                    query.add(wheres=f"{store} NOT IN ({','.join(['?' for each in value])})")
-                    values.extend(value)
+                    query.add(wheres=f"{store} NOT IN ({','.join(['?' for _ in value])})")
+                    values.extend(sorted(value))
                 else:
                     query.add(wheres="TRUE")
             elif operator == "like":
@@ -539,7 +539,7 @@ class Source(relations.Source): # pylint: disable=too-many-public-methods
                 if walked is not None:
                     values.pop(-1)
                 ins = []
-                for each in value:
+                for each in sorted(value):
                     ins.append(f"json_extract(?,'$') IN (SELECT json_data.value FROM json_each({store}) AS json_data)")
                     values.append(json.dumps(each))
                     if walked is not None:
@@ -554,8 +554,15 @@ class Source(relations.Source): # pylint: disable=too-many-public-methods
                         values.append(walked)
                     values.append(len(value))
             else:
-                query.add(wheres=f"{store}{self.RETRIEVE[operator]}?")
-                values.append(value)
+                if isinstance(value, (bool, int, float, str)):
+                    query.add(wheres=f"{store}{self.RETRIEVE[operator]}?")
+                    values.append(value)
+                else:
+                    if walked is not None:
+                        query.add(wheres=f"{store}{self.RETRIEVE[operator]}json_extract(?,'$')")
+                    else:
+                        query.add(wheres=f"json_extract({store},'$'){self.RETRIEVE[operator]}json_extract(?,'$')")
+                    values.append(json.dumps(sorted(value) if isinstance(value, set) else value))
 
     @classmethod
     def model_like(cls, model, query, values):
