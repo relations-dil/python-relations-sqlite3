@@ -32,9 +32,9 @@ lint:
 setup:
 	docker run $(TTY) $(VOLUMES) $(INSTALL) sh -c "cp -r /opt/service /opt/install && cd /opt/install/ && \
 	apk update && apk add git && \
-	pip install git+https://github.com/gaf3/python-relations.git@8b5c841#egg=relations && \
-	pip install git+https://github.com/gaf3/python-relations-sql.git@985281d#egg=relations-sql && \
-	pip install git+https://github.com/gaf3/python-relations-sqlite.git@ebe7b6c#egg=relations-mysql && \
+	pip install git+https://github.com/gaf3/python-relations.git@0.6.4#egg=relations && \
+	pip install git+https://github.com/gaf3/python-relations-sql.git@0.6.0#egg=relations-sql && \
+	pip install git+https://github.com/gaf3/python-relations-sqlite.git@0.1.0#egg=relations-mysql && \
 	python setup.py install && \
 	python -m relations_sqlite3"
 
