@@ -1,7 +1,7 @@
 ACCOUNT=gaf3
 IMAGE=relations-sqlite3
 INSTALL=python:3.8.5-alpine3.12
-VERSION?=0.5.7
+VERSION?=0.6.0
 DEBUG_PORT=5678
 TTY=$(shell if tty -s; then echo "-it"; fi)
 VOLUMES=-v ${PWD}/lib:/opt/service/lib \
@@ -31,7 +31,10 @@ lint:
 
 setup:
 	docker run $(TTY) $(VOLUMES) $(INSTALL) sh -c "cp -r /opt/service /opt/install && cd /opt/install/ && \
-	apk update && apk add git && pip install git+https://github.com/gaf3/python-relations.git@0.2.8#egg=relations && \
+	apk update && apk add git && \
+	pip install git+https://github.com/gaf3/python-relations.git@8b5c841#egg=relations && \
+	pip install git+https://github.com/gaf3/python-relations-sql.git@985281d#egg=relations-sql && \
+	pip install git+https://github.com/gaf3/python-relations-sqlite.git@ebe7b6c#egg=relations-mysql && \
 	python setup.py install && \
 	python -m relations_sqlite3"
 
