@@ -2,7 +2,7 @@
 Module for intersting with sqlite3
 """
 
-# pylint: disable=arguments-differ
+# pylint: disable=arguments-differ,unsupported-membership-test
 
 import glob
 import copy
