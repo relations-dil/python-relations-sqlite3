@@ -1,6 +1,6 @@
-git+https://github.com/relations-dil/python-relations.git@0.6.6#egg=python-relations
-git+https://github.com/relations-dil/python-relations-sql.git@0.6.2#egg=python-relations-sql
-git+https://github.com/relations-dil/python-relations-sqlite.git@0.3.0#egg=python-relations-sqlite
+git+https://github.com/relations-dil/python-relations.git@7f6586f#egg=python-relations
+git+https://github.com/relations-dil/python-relations-sql.git@023a386#egg=python-relations-sql
+git+https://github.com/relations-dil/python-relations-sqlite.git@3c084fe#egg=python-relations-sqlite
 ptvsd==4.3.2
 coverage==5.2.1
 pylint==2.5.3
