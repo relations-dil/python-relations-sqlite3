@@ -1,7 +1,7 @@
 ACCOUNT=gaf3
 IMAGE=python-relations-sqlite3
 INSTALL=python:3.8.5-alpine3.12
-VERSION?=0.6.3
+VERSION?=0.6.4
 DEBUG_PORT=5678
 TTY=$(shell if tty -s; then echo "-it"; fi)
 VOLUMES=-v ${PWD}/lib:/opt/service/lib \
