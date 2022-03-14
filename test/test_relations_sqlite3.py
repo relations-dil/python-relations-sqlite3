@@ -1051,7 +1051,7 @@ CREATE UNIQUE INDEX `test_source`.`simple_name` ON `simple` (`name`);
 
 DROP TABLE IF EXISTS `test_source`.`simple`;
 
-ALTER TABLE `test_source`.`simple` RENAME TO `test_source`.`_old_simple`;
+ALTER TABLE `test_source`.`simple` RENAME TO `_old_simple`;
 
 DROP INDEX `test_source`.`simple_name`;
 
@@ -1065,6 +1065,10 @@ CREATE UNIQUE INDEX `test_source`.`simples_name` ON `simples` (`name`);
 INSERT
 INTO
   `test_source`.`simples`
+  (
+    `id`,
+    `name`
+  )
 SELECT
   `id` AS `id`,
   `name` AS `name`
