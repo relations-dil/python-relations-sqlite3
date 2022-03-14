@@ -33,9 +33,9 @@ setup:
 	docker run $(TTY) $(VOLUMES) $(INSTALL) sh -c "cp -r /opt/service /opt/install && cd /opt/install/ && \
 	apk update && apk add git && \
 	pip install \
-		git+https://github.com/relations-dil/python-relations.git@2a4fa0c#egg=python-relations \
-		git+https://github.com/relations-dil/python-relations-sql.git@3ade7fb#egg=python-relations-sql \
-		git+https://github.com/relations-dil/python-relations-sqlite.git@44b694e#egg=python-relations-sqlite&& \
+		git+https://github.com/relations-dil/python-relations.git@0.6.9#egg=python-relations \
+		git+https://github.com/relations-dil/python-relations-sql.git@0.6.5#egg=python-relations-sql \
+		git+https://github.com/relations-dil/python-relations-sqlite.git@0.6.0#egg=python-relations-sqlite&& \
 	python setup.py install && \
 	python -m relations_sqlite3"
 
