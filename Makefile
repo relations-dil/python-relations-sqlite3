@@ -35,7 +35,8 @@ setup:
 	pip install \
 		git+https://github.com/relations-dil/python-relations.git@2a4fa0c#egg=python-relations \
 		git+https://github.com/relations-dil/python-relations-sql.git@3ade7fb#egg=python-relations-sql \
-		git+https://github.com/relations-dil/python-relations-sqlite.git@44b694e#egg=python-relations-sqlite&& \	python setup.py install && \
+		git+https://github.com/relations-dil/python-relations-sqlite.git@44b694e#egg=python-relations-sqlite&& \
+	python setup.py install && \
 	python -m relations_sqlite3"
 
 tag:
