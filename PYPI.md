@@ -1,4 +1,4 @@
-# python-relations-sqlite3
+# relations-sqlite3
 
 DB Modeling for SQLite using the sqlite3 library
 
