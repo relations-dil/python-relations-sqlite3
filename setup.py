@@ -7,13 +7,14 @@ with open("README.md", "r") as readme_file:
 
 setup(
     name="relations-sqlite3",
-    version="0.6.6",
+    version="0.6.7",
     package_dir = {'': 'lib'},
     py_modules = [
         'relations_sqlite3'
     ],
     install_requires=[
-        'relations-sqlite>=0.6.1'
+        'relations-dil>=0.6.12',
+        'relations-sqlite>=0.6.2'
     ],
     url="https://github.com/relations-dil/python-relations-sqlite3",
     author="Gaffer Fitch",
