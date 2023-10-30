@@ -128,7 +128,7 @@ class Source(relations.Source): # pylint: disable=too-many-public-methods
         Get query for what's being inserted
         """
 
-        fields = [field.store for field in model._fields._order if not field.auto and not field.inject]
+        fields = [field.store for field in model._fields._order if not field.auto and not field.inject and field.store]
         query = self.INSERT(self.TABLE_NAME(model.STORE, schema=model.SCHEMA), *fields)
 
         if not model._bulk and model._id is not None and model._fields._names[model._id].auto:
@@ -157,12 +157,15 @@ class Source(relations.Source): # pylint: disable=too-many-public-methods
         Executes the create
         """
 
+        super().create(model)
+
         cursor = self.connection.cursor()
 
         if not model._bulk and model._id is not None and model._fields._names[model._id].auto:
             for creating in model._each("create"):
                 create_query = query or self.create_query(creating)
                 self.create_id(cursor, creating, create_query)
+                self.create_ties(creating)
         else:
             create_query = query or self.create_query(model)
             create_query.generate()
@@ -217,10 +220,10 @@ class Source(relations.Source): # pylint: disable=too-many-public-methods
             parent = False
 
             for relation in model.PARENTS.values():
-                if field.name == relation.child_field:
+                if field.name == relation.child_parent_ref:
                     parent = relation.Parent.many(like=model._like).limit(model._chunk)
-                    if parent[relation.parent_field]:
-                        titles(self.IN(field.store, parent[relation.parent_field]))
+                    if parent[relation.parent_id]:
+                        titles(self.IN(field.store, parent[relation.parent_id]))
                         model.overflow = model.overflow or parent.overflow
                     else:
                         parent = True
@@ -299,6 +302,8 @@ class Source(relations.Source): # pylint: disable=too-many-public-methods
         Executes the count
         """
 
+        super().count(model)
+
         cursor = self.connection.cursor()
 
         if query is None:
@@ -329,6 +334,8 @@ class Source(relations.Source): # pylint: disable=too-many-public-methods
         """
         Executes the retrieve
         """
+
+        super().retrieve(model)
 
         cursor = self.connection.cursor()
 
@@ -367,6 +374,8 @@ class Source(relations.Source): # pylint: disable=too-many-public-methods
             model._record = None
 
         model._action = "update"
+
+        self.retrieve_ties(model)
 
         cursor.close()
 
@@ -428,6 +437,8 @@ class Source(relations.Source): # pylint: disable=too-many-public-methods
         Executes the update
         """
 
+        super().update(model)
+
         cursor = self.connection.cursor()
 
         updated = 0
@@ -440,7 +451,8 @@ class Source(relations.Source): # pylint: disable=too-many-public-methods
 
             update_query.generate()
             cursor.execute(update_query.sql, update_query.args)
-            updated = cursor.rowcount
+            updated += cursor.rowcount
+
 
         elif model._id:
 
@@ -452,12 +464,14 @@ class Source(relations.Source): # pylint: disable=too-many-public-methods
 
                     update_query.generate()
                     cursor.execute(update_query.sql, update_query.args)
+                    updated += cursor.rowcount
+
+                self.delete_ties(updating)
+                self.create_ties(updating)
 
                 for parent_child in updating.CHILDREN:
                     if updating._children.get(parent_child):
                         updating._children[parent_child].create().update()
-
-                updated += cursor.rowcount
 
         else:
 
@@ -495,9 +509,25 @@ class Source(relations.Source): # pylint: disable=too-many-public-methods
         Executes the delete
         """
 
+        super().delete(model)
+
         cursor = self.connection.cursor()
 
-        delete_query = query or self.delete_query(model)
+        if model._action == "retrieve":
+
+            delete_query = query or self.delete_query(model)
+
+        elif model._id:
+
+            delete_query = self.delete_query(model)
+
+            for deleting in model._each():
+                if self.has_ties(deleting):
+                    self.delete_ties(deleting)
+
+        else:
+
+            raise relations.ModelError(model, "nothing to delete from")
 
         delete_query.generate()
         cursor.execute(delete_query.sql, tuple(delete_query.args))
