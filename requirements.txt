@@ -1,5 +1,5 @@
 
-relations-dil==0.6.15
+relations-dil==0.6.16
 relations-sql==0.6.9
 relations-sqlite==0.6.3
 ptvsd==4.3.2

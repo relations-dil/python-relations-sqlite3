@@ -1,19 +1,26 @@
 #!/usr/bin/env python
 
+import os
 from setuptools import setup
 
 with open("README.md", "r") as readme_file:
     long_description = readme_file.read()
 
+version = os.environ.get("BUILD_VERSION")
+
+if version is None:
+    with open("VERSION", "r") as version_file:
+        version = version_file.read().strip()
+
 setup(
     name="relations-sqlite3",
-    version="0.6.9",
+    version=version,
     package_dir = {'': 'lib'},
     py_modules = [
         'relations_sqlite3'
     ],
     install_requires=[
-        'relations-dil>=0.6.13',
+        'relations-dil>=0.6.16',
         'relations-sqlite>=0.6.3'
     ],
     url="https://github.com/relations-dil/python-relations-sqlite3",
