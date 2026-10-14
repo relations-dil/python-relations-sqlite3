@@ -21,6 +21,12 @@ Shipping as 0.6.10, with relations-dil 0.6.16.
 ### Changed
 - A key stored in a dict field (`child_inject` in relations-dil 0.6.16) is queried by its path in that field, instead of a column that doesn't exist: new `retrieve_record` hands the record to `retrieve_field`, which looks an injected field up in the field it's stored in (as the extracted column if it's been extracted), and `sort` does the same. Counting, retrieving, updating and deleting by the key work, and mass updates through it are refused.
 
+## [0.6.12] - 2026-10-14
+
+### Changed
+- A duplicate (SQLite's `UNIQUE constraint failed`, which a repeated primary key also is) raises `relations.UniqueError` from create and update, with the driver's `sqlite3.IntegrityError` as its cause, through the new `Source.write`. Any other integrity error is left as it is.
+- "none retrieved" and "more than one retrieved" are `relations.NotFoundError` and `relations.MultipleError` (same messages, still `ModelError`s). Needs relations-dil 0.6.19 (relations-dil/python-relations#78).
+
 ## [0.6.11] - 2026-10-14
 
 ### Changed
