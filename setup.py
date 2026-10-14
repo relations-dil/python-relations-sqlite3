@@ -20,7 +20,7 @@ setup(
         'relations_sqlite3'
     ],
     install_requires=[
-        'relations-dil>=0.6.18',
+        'relations-dil>=0.6.19',
         'relations-sqlite>=0.6.4'
     ],
     url="https://github.com/relations-dil/python-relations-sqlite3",

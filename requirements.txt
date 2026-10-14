@@ -1,5 +1,5 @@
 
-relations-dil==0.6.18
+relations-dil @ git+https://github.com/relations-dil/python-relations.git@40deea9d5c47dc08e389b890c707c0e3b25de92a
 relations-sql==0.6.10
 relations-sqlite==0.6.4
 ptvsd==4.3.2

@@ -144,13 +144,26 @@ class Source(relations_sql.SOURCE, relations.Source): # pylint: disable=too-many
         return query
 
     @staticmethod
+    def write(cursor, model, sql, args):
+        """
+        Executes a write, a duplicate is relations' unique error, with the driver's error as its cause
+        """
+
+        try:
+            cursor.execute(sql, args)
+        except sqlite3.IntegrityError as exception:
+            if str(exception).startswith("UNIQUE constraint failed"):
+                raise relations.UniqueError(model, str(exception)) from exception
+            raise
+
+    @staticmethod
     def create_id(cursor, model, query):
         """
         Inserts a single record and sets the id
         """
 
         query.generate()
-        cursor.execute(query.sql, tuple(query.args))
+        Source.write(cursor, model, query.sql, tuple(query.args))
 
         model[model._id] = cursor.lastrowid
 
@@ -170,7 +183,7 @@ class Source(relations_sql.SOURCE, relations.Source): # pylint: disable=too-many
         else:
             create_query = query or self.create_query(model)
             create_query.generate()
-            cursor.execute(create_query.sql, tuple(create_query.args))
+            self.write(cursor, model, create_query.sql, tuple(create_query.args))
 
         cursor.close()
 
@@ -391,14 +404,14 @@ class Source(relations_sql.SOURCE, relations.Source): # pylint: disable=too-many
         rows = cursor.fetchall()
 
         if model._mode == "one" and len(rows) > 1:
-            raise relations.ModelError(model, "more than one retrieved")
+            raise relations.MultipleError(model, "more than one retrieved")
 
         if model._mode == "one" and model._role != "child":
 
             if len(rows) < 1:
 
                 if verify:
-                    raise relations.ModelError(model, "none retrieved")
+                    raise relations.NotFoundError(model, "none retrieved")
                 return None
 
             model._record = model._build("update", _read=self.values_retrieve(model, dict(rows[0])))
@@ -494,7 +507,7 @@ class Source(relations_sql.SOURCE, relations.Source): # pylint: disable=too-many
             if update_query.SET.expressions:
 
                 update_query.generate()
-                cursor.execute(update_query.sql, update_query.args)
+                self.write(cursor, model, update_query.sql, update_query.args)
                 updated += cursor.rowcount
 
             ties = model._record.tie({})
@@ -524,7 +537,7 @@ class Source(relations_sql.SOURCE, relations.Source): # pylint: disable=too-many
                 if update_query.SET.expressions:
 
                     update_query.generate()
-                    cursor.execute(update_query.sql, update_query.args)
+                    self.write(cursor, updating, update_query.sql, update_query.args)
                     updated += cursor.rowcount
 
 
