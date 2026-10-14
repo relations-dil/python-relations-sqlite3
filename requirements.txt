@@ -1,7 +1,7 @@
 
-relations-dil==0.6.16
-relations-sql==0.6.9
-relations-sqlite==0.6.3
+relations-dil==0.6.18
+relations-sql==0.6.10
+relations-sqlite==0.6.4
 ptvsd==4.3.2
 coverage==5.2.1
 pylint==2.5.3
