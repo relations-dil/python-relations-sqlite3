@@ -21,7 +21,7 @@ setup(
     ],
     install_requires=[
         'relations-dil>=0.6.19',
-        'relations-sqlite>=0.6.4'
+        'relations-sqlite>=0.6.5'
     ],
     url="https://github.com/relations-dil/python-relations-sqlite3",
     author="Gaffer Fitch",

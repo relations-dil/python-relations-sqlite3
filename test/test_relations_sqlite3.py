@@ -239,6 +239,21 @@ CREATE UNIQUE INDEX `test_source`.`simple_name` ON `simple` (`name`);
         self.assertEqual([column["name"] for column in cursor.fetchall()], ["id", "name", "what"])
         cursor.close()
 
+    def test_define_length(self):
+
+        class Short(SourceModel):
+            id = int
+            name = relations.Field(str, length=4)
+
+        self.source.execute(self.source.define(Short.thy().define()))
+
+        cursor = self.source.connection.cursor()
+
+        cursor.execute("INSERT INTO `test_source`.`short` (`name`) VALUES ('four')")
+        self.assertRaises(sqlite3.IntegrityError, cursor.execute, "INSERT INTO `test_source`.`short` (`name`) VALUES ('fives')")
+
+        cursor.close()
+
     def test_create_query(self):
 
         query = Simple("sure").query()
